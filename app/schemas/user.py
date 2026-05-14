@@ -1,10 +1,10 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from typing import Optional
 from datetime import datetime
 
 class UserBase(BaseModel):
     email: EmailStr
-    displayName: str = Field(validation_alias="display_name")
+    displayName: str
 
 class UserCreate(UserBase):
     password: str
@@ -12,6 +12,13 @@ class UserCreate(UserBase):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+class UserUpdate(BaseModel):
+    displayName: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
 
 class Token(BaseModel):
     access_token: str
@@ -23,14 +30,13 @@ class TokenData(BaseModel):
 class UserOut(BaseModel):
     id: int
     email: EmailStr
-    displayName: str = Field(validation_alias="display_name")
+    display_name: str = Field(alias="displayName")
     is_active: bool
+    access_token: Optional[str] = None
     created_at: datetime
-    role: str = "user"
+    role: str = "admin"
 
-    class Config:
-        from_attributes = True
-        populate_by_name = True
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 class LoginResponse(BaseModel):
     user: UserOut
