@@ -13,3 +13,4 @@ cors
 # Database
 pymysql
 aiomysql
+gunicorn
