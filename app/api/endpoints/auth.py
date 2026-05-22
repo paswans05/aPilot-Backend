@@ -56,6 +56,11 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
         email=user_in.email,
         display_name=user_in.displayName,
         hashed_password=get_password_hash(user_in.password),
+        system_user=user_in.system_user,
+        hostname=user_in.hostname,
+        platform=user_in.platform,
+        os_release=user_in.os_release,
+        arch=user_in.arch,
     )
     db.add(new_user)
     db.commit()

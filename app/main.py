@@ -4,7 +4,6 @@ from app.api.endpoints import auth, messenger
 from app.db.session import engine, Base, SessionLocal
 from app.models.user import User
 from app.models.messenger import Chat, ChatParticipant, Message
-from app.api.endpoints.messenger import seed_dummy_users
 from sqlalchemy import inspect, text
 import os
 from dotenv import load_dotenv
@@ -22,6 +21,16 @@ try:
                 db.execute(text("ALTER TABLE users ADD COLUMN avatar VARCHAR(255) NULL"))
             if 'about' not in columns:
                 db.execute(text("ALTER TABLE users ADD COLUMN about VARCHAR(255) NULL"))
+            if 'system_user' not in columns:
+                db.execute(text("ALTER TABLE users ADD COLUMN system_user VARCHAR(100) NULL"))
+            if 'hostname' not in columns:
+                db.execute(text("ALTER TABLE users ADD COLUMN hostname VARCHAR(100) NULL"))
+            if 'platform' not in columns:
+                db.execute(text("ALTER TABLE users ADD COLUMN platform VARCHAR(50) NULL"))
+            if 'os_release' not in columns:
+                db.execute(text("ALTER TABLE users ADD COLUMN os_release VARCHAR(50) NULL"))
+            if 'arch' not in columns:
+                db.execute(text("ALTER TABLE users ADD COLUMN arch VARCHAR(20) NULL"))
             db.commit()
         except Exception as e:
             print(f"Error altering users table: {e}")
@@ -33,15 +42,6 @@ except Exception as e:
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
-
-# Seed dummy users
-db = SessionLocal()
-try:
-    seed_dummy_users(db)
-except Exception as e:
-    print(f"Error seeding dummy users: {e}")
-finally:
-    db.close()
 
 app = FastAPI(title=os.getenv("PROJECT_NAME", "aPilot API"))
 

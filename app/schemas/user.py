@@ -8,6 +8,11 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    system_user: Optional[str] = None
+    hostname: Optional[str] = None
+    platform: Optional[str] = None
+    os_release: Optional[str] = None
+    arch: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -35,6 +40,11 @@ class UserOut(BaseModel):
     access_token: Optional[str] = None
     created_at: datetime
     role: str = "admin"
+    system_user: Optional[str] = None
+    hostname: Optional[str] = None
+    platform: Optional[str] = None
+    os_release: Optional[str] = None
+    arch: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

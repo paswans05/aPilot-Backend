@@ -13,6 +13,11 @@ class User(Base):
     access_token = Column(String(500), nullable=True)
     avatar = Column(String(255), nullable=True)
     about = Column(String(255), nullable=True)
+    system_user = Column(String(100), nullable=True)
+    hostname = Column(String(100), nullable=True)
+    platform = Column(String(50), nullable=True)
+    os_release = Column(String(50), nullable=True)
+    arch = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

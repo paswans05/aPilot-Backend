@@ -13,7 +13,6 @@ from app.schemas.messenger import (
     ChatOut, ChatCreate, MessageOut, MessageCreate, ProfileOut, ProfileUpdate
 )
 from app.api.deps import get_current_user
-from app.core.security import get_password_hash
 
 router = APIRouter()
 
@@ -215,49 +214,3 @@ def update_profile_me(profile_in: ProfileUpdate, db: Session = Depends(get_db), 
         avatar=user.avatar,
         about=user.about
     )
-
-# ── Seeding ───────────────────────────────────────────────────────────────
-
-def seed_dummy_users(db: Session):
-    dummy_contacts = [
-        {
-            "email": "dejesusmichael@mail.org",
-            "name": "Dejesus Michael",
-            "avatar": "/assets/images/avatars/male-01.jpg",
-            "about": "Hi there! I'm using aPilot Chat."
-        },
-        {
-            "email": "denamolina@mail.us",
-            "name": "Dena Molina",
-            "avatar": "/assets/images/avatars/female-01.jpg",
-            "about": "Always online and ready to help."
-        },
-        {
-            "email": "bernardlangley@mail.com",
-            "name": "Bernard Langley",
-            "avatar": "/assets/images/avatars/male-02.jpg",
-            "about": "Let's build something awesome today."
-        },
-        {
-            "email": "trudyberg@mail.us",
-            "name": "Trudy Berg",
-            "avatar": "/assets/images/avatars/female-03.jpg",
-            "about": "Frontend developer & UI enthusiast."
-        }
-    ]
-    
-    dummy_password_hash = get_password_hash("default_dummy_password_123")
-    
-    for contact in dummy_contacts:
-        user = db.query(User).filter(User.email == contact["email"]).first()
-        if not user:
-            new_user = User(
-                email=contact["email"],
-                display_name=contact["name"],
-                hashed_password=dummy_password_hash,
-                avatar=contact["avatar"],
-                about=contact["about"],
-                is_active=True
-            )
-            db.add(new_user)
-    db.commit()

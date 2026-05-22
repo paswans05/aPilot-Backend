@@ -1,7 +1,12 @@
 fastapi
 uvicorn[standard]
+
+
+aiomysql
+pymysql
 sqlalchemy
 mysql-connector-python
+
 python-dotenv
 passlib[bcrypt]
 bcrypt==3.2.2
@@ -10,7 +15,5 @@ python-multipart
 pydantic[email]
 cors
 
-# Database
-pymysql
-aiomysql
+
 gunicorn
