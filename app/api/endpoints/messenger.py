@@ -1,28 +1,140 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from typing import List, Optional
 import uuid
+import asyncio
 from datetime import datetime
+from jose import jwt, JWTError
 
-from app.db.session import get_db
+from app.db.session import get_db, SessionLocal
 from app.models.user import User
 from app.models.messenger import Chat, ChatParticipant, Message
 from app.schemas.messenger import (
     Contact, ContactDetails, EmailDetail, PhoneNumberDetail,
     ChatOut, ChatCreate, MessageOut, MessageCreate, ProfileOut, ProfileUpdate
 )
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, SECRET_KEY, ALGORITHM
 
 router = APIRouter()
 
-def user_to_contact(user: User) -> Contact:
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[str, list[WebSocket]] = {}
+
+    async def connect(self, user_id: str, websocket: WebSocket):
+        await websocket.accept()
+        if user_id not in self.active_connections:
+            self.active_connections[user_id] = []
+        self.active_connections[user_id].append(websocket)
+
+    def disconnect(self, user_id: str, websocket: WebSocket):
+        if user_id in self.active_connections:
+            if websocket in self.active_connections[user_id]:
+                self.active_connections[user_id].remove(websocket)
+            if not self.active_connections[user_id]:
+                del self.active_connections[user_id]
+
+    async def send_personal_message(self, message: dict, websocket: WebSocket):
+        await websocket.send_json(message)
+
+    async def broadcast_status(self, user_id: str, status: str):
+        payload = {
+            "type": "status_update",
+            "contactId": user_id,
+            "status": status
+        }
+        for connections in self.active_connections.values():
+            for connection in connections:
+                try:
+                    await connection.send_json(payload)
+                except Exception:
+                    pass
+
+    async def send_chat_message(self, chat_id: str, message: dict, sender_id: str, participant_ids: list[str]):
+        payload = {
+            "type": "new_message",
+            "chatId": chat_id,
+            "message": message
+        }
+        for pid in participant_ids:
+            if pid in self.active_connections:
+                for connection in self.active_connections[pid]:
+                    try:
+                        await connection.send_json(payload)
+                    except Exception:
+                        pass
+
+manager = ConnectionManager()
+
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
+    db = SessionLocal()
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+        user = db.query(User).filter(User.email == email).first()
+        if user is None:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+    except JWTError:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    finally:
+        db.close()
+
+    user_id = str(user.id)
+    await manager.connect(user_id, websocket)
+    await manager.broadcast_status(user_id, "online")
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if data.get("type") == "send_message":
+                chat_id = data.get("chatId")
+                value = data.get("value")
+                msg_id = data.get("id") or str(uuid.uuid4())
+                
+                db = SessionLocal()
+                try:
+                    part = db.query(ChatParticipant).filter(
+                        ChatParticipant.chat_id == chat_id,
+                        ChatParticipant.user_id == user.id
+                    ).first()
+                    if part:
+                        db_message = Message(
+                            id=msg_id,
+                            chat_id=chat_id,
+                            contact_id=user.id,
+                            value=value
+                        )
+                        db.add(db_message)
+                        db.commit()
+                        
+                        participants = db.query(ChatParticipant).filter(
+                            ChatParticipant.chat_id == chat_id
+                        ).all()
+                        pids = [str(p.user_id) for p in participants]
+                        msg_out = message_to_out(db_message)
+                        await manager.send_chat_message(chat_id, msg_out.model_dump(), user_id, pids)
+                except Exception as e:
+                    print(f"Error handling WS message: {e}")
+                finally:
+                    db.close()
+    except WebSocketDisconnect:
+        manager.disconnect(user_id, websocket)
+        await manager.broadcast_status(user_id, "offline")
+
+def user_to_contact(user: User, status: str = "online") -> Contact:
     return Contact(
         id=str(user.id),
         avatar=user.avatar,
         name=user.display_name,
         about=user.about or "Hi there! I'm using aPilot Chat.",
-        status="online",
+        status=status,
         details=ContactDetails(
             emails=[EmailDetail(email=user.email, label="Work")],
             phoneNumbers=[PhoneNumberDetail(phoneNumber="123 456 7890", country="us", label="Work")],
@@ -71,7 +183,7 @@ def message_to_out(msg: Message) -> MessageOut:
 @router.get("/contacts", response_model=List[Contact])
 def get_contacts(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     users = db.query(User).filter(User.id != current_user.id).all()
-    return [user_to_contact(u) for u in users]
+    return [user_to_contact(u, "online" if str(u.id) in manager.active_connections else "offline") for u in users]
 
 @router.get("/contacts/{contact_id}", response_model=Contact)
 def get_contact(contact_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -83,7 +195,8 @@ def get_contact(contact_id: str, db: Session = Depends(get_db), current_user: Us
     user = db.query(User).filter(User.id == uid).first()
     if not user:
         raise HTTPException(status_code=404, detail="Contact not found")
-    return user_to_contact(user)
+    status_val = "online" if str(user.id) in manager.active_connections else "offline"
+    return user_to_contact(user, status_val)
 
 @router.get("/chat-list", response_model=List[ChatOut])
 def get_chats(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -175,6 +288,12 @@ def send_message(msg_in: MessageCreate, db: Session = Depends(get_db), current_u
     )
     db.add(db_message)
     db.commit()
+    
+    # Broadcast message to all active participants via WebSocket
+    participants = db.query(ChatParticipant).filter(ChatParticipant.chat_id == msg_in.chatId).all()
+    pids = [str(p.user_id) for p in participants]
+    msg_out = message_to_out(db_message)
+    asyncio.create_task(manager.send_chat_message(msg_in.chatId, msg_out.model_dump(), str(current_user.id), pids))
     
     # Return all messages in chat
     messages = db.query(Message).filter(Message.chat_id == msg_in.chatId).order_by(Message.created_at.asc()).all()
