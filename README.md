@@ -57,6 +57,8 @@ Start the development server with auto-reload:
 
 ```powershell
 uvicorn app.main:app --reload
+
+ ./venv/Scripts/python -m uvicorn app.main:app --reload
 ```
 
 The API will be available at `http://localhost:8000`.
