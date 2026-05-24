@@ -7,6 +7,7 @@ from app.models.messenger import Chat, ChatParticipant, Message
 from sqlalchemy import inspect, text
 import os
 from dotenv import load_dotenv
+import socketio
 
 load_dotenv()
 
@@ -61,6 +62,11 @@ app.include_router(messenger.router, prefix="/api/messenger", tags=["messenger"]
 def read_root():
     return {"message": "Welcome to aPilot API"}
 
+# Wrap FastAPI with Socket.IO ASGI app
+# The Socket.IO server is created in messenger.py and imported here
+socket_app = socketio.ASGIApp(messenger.sio, app)
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    # Run the socket_app (which wraps FastAPI) so both REST and Socket.IO work
+    uvicorn.run("app.main:socket_app", host="0.0.0.0", port=8000, reload=True)

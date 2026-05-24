@@ -1,4 +1,5 @@
 fastapi
+python-socketio
 uvicorn[standard]
 
 
