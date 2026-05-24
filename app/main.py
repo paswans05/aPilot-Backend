@@ -47,7 +47,7 @@ app = FastAPI(title=os.getenv("PROJECT_NAME", "aPilot API"))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5000", "http://127.0.0.1:5000"],
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
