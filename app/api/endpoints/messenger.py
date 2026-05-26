@@ -314,58 +314,58 @@ def get_chats(db: Session = Depends(get_db), current_user: User = Depends(get_cu
     return [chat_to_out(c, db) for c in chats]
 
 @router.post("/chat-list", response_model=ChatOut)
-def create_chat(chat_in: ChatCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    try:
-        participant_ids = [int(cid) for cid in chat_in.contactIds]
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid participant IDs")
-        
-    if current_user.id not in participant_ids:
-        participant_ids.append(current_user.id)
-        
-    # Check if chat already exists with exactly these participants
-    user_chats = (
-        db.query(Chat)
-        .join(ChatParticipant)
-        .filter(ChatParticipant.user_id == current_user.id)
-        .all()
-    )
-    existing_chat = None
-    target_set = set(participant_ids)
-    
-    for c in user_chats:
-        chat_part_ids = {p.user_id for p in c.participants}
-        if chat_part_ids == target_set:
-            existing_chat = c
-            break
-            
-    if existing_chat:
-        return chat_to_out(existing_chat, db)
-        
-    # Create new chat
-    chat_id = str(uuid.uuid4())
-    new_chat = Chat(id=chat_id)
-    db.add(new_chat)
-    db.commit()
-    
-    # Add participants
-    for pid in target_set:
-        user_exists = db.query(User).filter(User.id == pid).first()
-        if user_exists:
-            part = ChatParticipant(chat_id=chat_id, user_id=pid)
-            db.add(part)
-            
-    db.commit()
-    db.refresh(new_chat)
+async def create_chat(chat_in: ChatCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+	try:
+		participant_ids = [int(cid) for cid in chat_in.contactIds]
+	except ValueError:
+		raise HTTPException(status_code=400, detail="Invalid participant IDs")
+		
+	if current_user.id not in participant_ids:
+		participant_ids.append(current_user.id)
+		
+	# Check if chat already exists with exactly these participants
+	user_chats = (
+		db.query(Chat)
+		.join(ChatParticipant)
+		.filter(ChatParticipant.user_id == current_user.id)
+		.all()
+	)
+	existing_chat = None
+	target_set = set(participant_ids)
+	
+	for c in user_chats:
+		chat_part_ids = {p.user_id for p in c.participants}
+		if chat_part_ids == target_set:
+			existing_chat = c
+			break
+			
+	if existing_chat:
+		return chat_to_out(existing_chat, db)
+		
+	# Create new chat
+	chat_id = str(uuid.uuid4())
+	new_chat = Chat(id=chat_id)
+	db.add(new_chat)
+	db.commit()
+	
+	# Add participants
+	for pid in target_set:
+		user_exists = db.query(User).filter(User.id == pid).first()
+		if user_exists:
+			part = ChatParticipant(chat_id=chat_id, user_id=pid)
+			db.add(part)
+			
+	db.commit()
+	db.refresh(new_chat)
 
-    # Auto-join connected participants to the new chat room
-    for pid in target_set:
-        pid_str = str(pid)
-        if pid_str in online_users:
-            for user_sid in online_users[pid_str]:
-                asyncio.create_task(sio.enter_room(user_sid, f'chat_{chat_id}'))
+	# Auto-join connected participants to the new chat room
+	for pid in target_set:
+		pid_str = str(pid)
+		if pid_str in online_users:
+			for user_sid in online_users[pid_str]:
+				await sio.enter_room(user_sid, f'chat_{chat_id}')
 
-    return chat_to_out(new_chat, db)
+	return chat_to_out(new_chat, db)
 
 @router.get("/messages", response_model=List[MessageOut])
 def get_messages(chatId: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -380,35 +380,37 @@ def get_messages(chatId: str, db: Session = Depends(get_db), current_user: User 
     return [message_to_out(m) for m in messages]
 
 @router.post("/messages", response_model=List[MessageOut])
-def send_message_rest(msg_in: MessageCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """REST fallback for sending messages. Primary path is Socket.IO."""
-    part = db.query(ChatParticipant).filter(
-        ChatParticipant.chat_id == msg_in.chatId,
-        ChatParticipant.user_id == current_user.id
-    ).first()
-    if not part:
-        raise HTTPException(status_code=403, detail="You are not a participant in this chat")
-        
-    msg_id = msg_in.id or str(uuid.uuid4())
-    db_message = Message(
-        id=msg_id,
-        chat_id=msg_in.chatId,
-        contact_id=current_user.id,
-        value=msg_in.value
-    )
-    db.add(db_message)
-    db.commit()
-    
-    # Broadcast via Socket.IO to all participants
-    participants = db.query(ChatParticipant).filter(ChatParticipant.chat_id == msg_in.chatId).all()
-    msg_out = message_to_out(db_message)
-    asyncio.create_task(sio.emit('new_message', {
-        'chatId': msg_in.chatId,
-        'message': msg_out.model_dump()
-    }, room=f'chat_{msg_in.chatId}'))
-    
-    messages = db.query(Message).filter(Message.chat_id == msg_in.chatId).order_by(Message.created_at.asc()).all()
-    return [message_to_out(m) for m in messages]
+async def send_message_rest(msg_in: MessageCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+	"""REST fallback for sending messages. Primary path is Socket.IO."""
+	part = db.query(ChatParticipant).filter(
+		ChatParticipant.chat_id == msg_in.chatId,
+		ChatParticipant.user_id == current_user.id
+	).first()
+	if not part:
+		raise HTTPException(status_code=403, detail="You are not a participant in this chat")
+		
+	msg_id = msg_in.id
+	if not msg_id or len(msg_id) < 32:
+		msg_id = str(uuid.uuid4())
+	db_message = Message(
+		id=msg_id,
+		chat_id=msg_in.chatId,
+		contact_id=current_user.id,
+		value=msg_in.value
+	)
+	db.add(db_message)
+	db.commit()
+	
+	# Broadcast via Socket.IO to all participants
+	participants = db.query(ChatParticipant).filter(ChatParticipant.chat_id == msg_in.chatId).all()
+	msg_out = message_to_out(db_message)
+	await sio.emit('new_message', {
+		'chatId': msg_in.chatId,
+		'message': msg_out.model_dump()
+	}, room=f'chat_{msg_in.chatId}')
+	
+	messages = db.query(Message).filter(Message.chat_id == msg_in.chatId).order_by(Message.created_at.asc()).all()
+	return [message_to_out(m) for m in messages]
 
 @router.get("/profile/me", response_model=ProfileOut)
 def get_profile_me(current_user: User = Depends(get_current_user)):

@@ -37,6 +37,8 @@ A modern, high-performance backend API for the aPilot application, built with Fa
 3. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
+
+   ./venv/Scripts/python -m pip install -r requirements.txt
    ```
 
 ### Configuration
@@ -58,7 +60,7 @@ Start the development server with auto-reload:
 ```powershell
 uvicorn app.main:app --reload
 
- ./venv/Scripts/python -m uvicorn app.main:app --reload
+./venv/Scripts/python -m uvicorn app.main:app --reload
 ```
 
 The API will be available at `http://localhost:8000`.
