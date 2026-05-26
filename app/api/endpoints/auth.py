@@ -47,10 +47,21 @@ def update_user(
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == user_in.email).first()
     if user:
-        raise HTTPException(
-            status_code=400,
-            detail="The user with this email already exists in the system.",
-        )
+        if verify_password(user_in.password, user.hashed_password):
+            access_token = create_access_token(user.email)
+            user.access_token = access_token
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            return {
+                "user": user,
+                "access_token": access_token
+            }
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="The user with this email already exists in the system.",
+            )
     
     new_user = User(
         email=user_in.email,
