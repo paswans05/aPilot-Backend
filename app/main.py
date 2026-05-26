@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.endpoints import auth, messenger
+from app.api.endpoints import auth, messenger, notifications
 from app.db.session import engine, Base, SessionLocal
 from app.models.user import User
 from app.models.messenger import Chat, ChatParticipant, Message
+from app.models.notification import Notification
 from sqlalchemy import inspect, text
 import os
 from dotenv import load_dotenv
@@ -57,6 +58,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(messenger.router, prefix="/api/messenger", tags=["messenger"])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 
 @app.get("/")
 def read_root():
