@@ -93,6 +93,14 @@ async def connect(sid, environ, auth):
         'status': 'online'
     })
 
+    # Send currently online users list to the newly connected client
+    # so they see who is already online
+    online_list = [uid for uid in online_users if uid != user_id]
+    if online_list:
+        await sio.emit('online_users_list', {
+            'onlineUserIds': online_list
+        }, to=sid)
+
     # Join all chat rooms for this user
     db = SessionLocal()
     try:
