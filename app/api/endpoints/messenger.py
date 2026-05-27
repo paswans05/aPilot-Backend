@@ -44,11 +44,26 @@ async def connect(sid, environ, auth):
 
     if not token:
         # Try query string fallback
+        import urllib.parse
+        import json
         query_string = environ.get('QUERY_STRING', '')
-        for part in query_string.split('&'):
-            if part.startswith('token='):
-                token = part[6:]
-                break
+        try:
+            params = urllib.parse.parse_qs(query_string)
+            if 'token' in params:
+                token = params['token'][0]
+            elif 'auth' in params:
+                try:
+                    auth_data = json.loads(params['auth'][0])
+                    if isinstance(auth_data, dict):
+                        token = auth_data.get('token')
+                except Exception:
+                    pass
+        except Exception:
+            # Fallback to simple split if parsing fails
+            for part in query_string.split('&'):
+                if part.startswith('token='):
+                    token = part[6:]
+                    break
 
     if not token:
         raise socketio.exceptions.ConnectionRefusedError('Authentication required')
