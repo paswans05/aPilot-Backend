@@ -258,6 +258,22 @@ def user_to_contact(user: User, status: str = "online") -> Contact:
         )
     )
 
+def datetime_to_iso_utc(dt: Optional[datetime]) -> str:
+    if dt is None:
+        from datetime import timezone
+        dt = datetime.now(timezone.utc)
+    
+    from datetime import timezone
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc)
+    
+    s = dt.isoformat()
+    if s.endswith("+00:00"):
+        s = s[:-6] + "Z"
+    elif not s.endswith("Z"):
+        s = s + "Z"
+    return s
+
 def chat_to_out(chat: Chat, db: Session) -> ChatOut:
     contact_ids = [str(p.user_id) for p in chat.participants]
     
@@ -265,12 +281,12 @@ def chat_to_out(chat: Chat, db: Session) -> ChatOut:
     last_msg = db.query(Message).filter(Message.chat_id == chat.id).order_by(Message.created_at.desc()).first()
     
     last_message_val = ""
-    last_message_at = chat.created_at.isoformat() + "Z"
+    last_message_at = datetime_to_iso_utc(chat.created_at)
     
     if last_msg:
         last_message_val = last_msg.value
         if last_msg.created_at:
-            last_message_at = last_msg.created_at.isoformat() + "Z"
+            last_message_at = datetime_to_iso_utc(last_msg.created_at)
 
     return ChatOut(
         id=chat.id,
@@ -282,7 +298,7 @@ def chat_to_out(chat: Chat, db: Session) -> ChatOut:
     )
 
 def message_to_out(msg: Message) -> MessageOut:
-    created_at_str = msg.created_at.isoformat() + "Z" if msg.created_at else datetime.now().isoformat() + "Z"
+    created_at_str = datetime_to_iso_utc(msg.created_at)
     return MessageOut(
         id=msg.id,
         chatId=msg.chat_id,
