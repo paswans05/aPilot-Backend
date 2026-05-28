@@ -39,6 +39,19 @@ try:
             db.rollback()
         finally:
             db.close()
+
+    if inspector.has_table('messages'):
+        columns = [col['name'] for col in inspector.get_columns('messages')]
+        db = SessionLocal()
+        try:
+            if 'is_read' not in columns:
+                db.execute(text("ALTER TABLE messages ADD COLUMN is_read BOOLEAN NOT NULL DEFAULT FALSE"))
+                db.commit()
+        except Exception as e:
+            print(f"Error altering messages table: {e}")
+            db.rollback()
+        finally:
+            db.close()
 except Exception as e:
     print(f"Error inspecting database: {e}")
 

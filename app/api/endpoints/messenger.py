@@ -218,6 +218,15 @@ async def send_message(sid, data):
             'message': msg_out
         }, room=f'chat_{chat_id}')
 
+        # Also broadcast to personal user rooms of all participants to guarantee delivery
+        participants = db.query(ChatParticipant).filter(ChatParticipant.chat_id == chat_id).all()
+        for p in participants:
+            if str(p.user_id) != user_id:
+                await sio.emit('new_message', {
+                    'chatId': chat_id,
+                    'message': msg_out
+                }, room=f'user_{p.user_id}')
+
     except Exception as e:
         print(f"Error handling send_message: {e}")
     finally:
@@ -259,6 +268,48 @@ async def stop_typing(sid, data):
     }, room=f'chat_{chat_id}', skip_sid=sid)
 
 
+@sio.event
+async def mark_as_read(sid, data):
+    """Mark all messages in a chat as read for the current user."""
+    session = await sio.get_session(sid)
+    if not session:
+        return
+
+    user_id = session['user_id']
+    chat_id = data.get('chatId') if isinstance(data, dict) else data
+    if not chat_id:
+        return
+
+    db = SessionLocal()
+    try:
+        # Mark messages sent by the other participant as read
+        db.query(Message).filter(
+            Message.chat_id == chat_id,
+            Message.contact_id != int(user_id),
+            Message.is_read == False
+        ).update({"is_read": True})
+        db.commit()
+
+        # Notify other participants that messages were read
+        await sio.emit('messages_read', {
+            'chatId': chat_id,
+            'readerId': user_id
+        }, room=f'chat_{chat_id}')
+        
+        # Also broadcast to personal user rooms of participants to guarantee delivery
+        participants = db.query(ChatParticipant).filter(ChatParticipant.chat_id == chat_id).all()
+        for p in participants:
+            if str(p.user_id) != user_id:
+                await sio.emit('messages_read', {
+                    'chatId': chat_id,
+                    'readerId': user_id
+                }, room=f'user_{p.user_id}')
+    except Exception as e:
+        print(f"Error marking messages as read: {e}")
+    finally:
+        db.close()
+
+
 # ── Helper functions ─────────────────────────────────────────────────────────
 
 def user_to_contact(user: User, status: str = "online") -> Contact:
@@ -270,10 +321,10 @@ def user_to_contact(user: User, status: str = "online") -> Contact:
         status=status,
         details=ContactDetails(
             emails=[EmailDetail(email=user.email, label="Work")],
-            phoneNumbers=[PhoneNumberDetail(phoneNumber="123 456 7890", country="us", label="Work")],
+            phoneNumbers=[PhoneNumberDetail(phoneNumber="123 456 7890", country="in", label="Work")],
             title="aPilot Member",
             company="aPilot",
-            birthday="1990-01-01T12:00:00.000Z",
+            birthday="1998-09-12T12:00:00.000Z",
             address="San Francisco, CA"
         )
     )
@@ -324,7 +375,8 @@ def message_to_out(msg: Message) -> MessageOut:
         chatId=msg.chat_id,
         contactId=str(msg.contact_id),
         value=msg.value,
-        createdAt=created_at_str
+        createdAt=created_at_str,
+        isRead=getattr(msg, 'is_read', False)
     )
 
 # ── REST Endpoints (kept for compatibility) ──────────────────────────────────
@@ -429,7 +481,7 @@ async def create_chat(chat_in: ChatCreate, db: Session = Depends(get_db), curren
 	return chat_to_out(new_chat, db)
 
 @router.get("/messages", response_model=List[MessageOut])
-def get_messages(chatId: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_messages(chatId: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     part = db.query(ChatParticipant).filter(
         ChatParticipant.chat_id == chatId,
         ChatParticipant.user_id == current_user.id
@@ -437,6 +489,29 @@ def get_messages(chatId: str, db: Session = Depends(get_db), current_user: User 
     if not part:
         raise HTTPException(status_code=403, detail="You are not a participant in this chat")
         
+    # Mark incoming messages as read
+    db.query(Message).filter(
+        Message.chat_id == chatId,
+        Message.contact_id != current_user.id,
+        Message.is_read == False
+    ).update({"is_read": True})
+    db.commit()
+
+    # Notify other participants that messages were read
+    await sio.emit('messages_read', {
+        'chatId': chatId,
+        'readerId': str(current_user.id)
+    }, room=f'chat_{chatId}')
+    
+    # Also broadcast to personal user rooms of participants to guarantee delivery
+    participants = db.query(ChatParticipant).filter(ChatParticipant.chat_id == chatId).all()
+    for p in participants:
+        if p.user_id != current_user.id:
+            await sio.emit('messages_read', {
+                'chatId': chatId,
+                'readerId': str(current_user.id)
+            }, room=f'user_{p.user_id}')
+            
     messages = db.query(Message).filter(Message.chat_id == chatId).order_by(Message.created_at.asc()).all()
     return [message_to_out(m) for m in messages]
 
@@ -469,6 +544,14 @@ async def send_message_rest(msg_in: MessageCreate, db: Session = Depends(get_db)
 		'chatId': msg_in.chatId,
 		'message': msg_out.model_dump()
 	}, room=f'chat_{msg_in.chatId}')
+
+	# Also broadcast to personal user rooms of other participants to guarantee delivery
+	for p in participants:
+		if p.user_id != current_user.id:
+			await sio.emit('new_message', {
+				'chatId': msg_in.chatId,
+				'message': msg_out.model_dump()
+			}, room=f'user_{p.user_id}')
 	
 	messages = db.query(Message).filter(Message.chat_id == msg_in.chatId).order_by(Message.created_at.asc()).all()
 	return [message_to_out(m) for m in messages]

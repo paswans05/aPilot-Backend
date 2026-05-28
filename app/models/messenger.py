@@ -30,6 +30,7 @@ class Message(Base):
     chat_id = Column(String(50), ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
     contact_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     value = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     chat = relationship("Chat", back_populates="messages")

@@ -55,6 +55,7 @@ class MessageOut(BaseModel):
     contactId: str = Field(alias="contactId")
     value: str
     createdAt: str = Field(alias="createdAt")
+    isRead: bool = Field(alias="isRead", default=False)
 
     model_config = ConfigDict(populate_by_name=True)
 
