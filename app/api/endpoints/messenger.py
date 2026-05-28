@@ -80,7 +80,12 @@ async def connect(sid, environ, auth):
             raise socketio.exceptions.ConnectionRefusedError('User not found')
 
         user_id = str(user.id)
-        user_name = user.display_name or user.email
+        # Check if there is another user with the same display name
+        duplicate_exists = db.query(User).filter(User.id != user.id, User.display_name == user.display_name).first() is not None
+        if duplicate_exists and user.system_user:
+            user_name = f"{user.display_name} ({user.system_user})"
+        else:
+            user_name = user.display_name or user.email
 
     except JWTError:
         raise socketio.exceptions.ConnectionRefusedError('Invalid token')
@@ -327,7 +332,18 @@ def message_to_out(msg: Message) -> MessageOut:
 @router.get("/contacts", response_model=List[Contact])
 def get_contacts(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     users = db.query(User).filter(User.id != current_user.id).all()
-    return [user_to_contact(u, "online" if str(u.id) in online_users else "offline") for u in users]
+    
+    from collections import Counter
+    name_counts = Counter(u.display_name for u in users)
+    
+    contacts = []
+    for u in users:
+        status_val = "online" if str(u.id) in online_users else "offline"
+        contact = user_to_contact(u, status_val)
+        if name_counts[u.display_name] > 1 and u.system_user:
+            contact.name = f"{u.display_name} ({u.system_user})"
+        contacts.append(contact)
+    return contacts
 
 @router.get("/contacts/{contact_id}", response_model=Contact)
 def get_contact(contact_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -339,8 +355,14 @@ def get_contact(contact_id: str, db: Session = Depends(get_db), current_user: Us
     user = db.query(User).filter(User.id == uid).first()
     if not user:
         raise HTTPException(status_code=404, detail="Contact not found")
+        
+    duplicate_exists = db.query(User).filter(User.id != user.id, User.display_name == user.display_name).first() is not None
+    
     status_val = "online" if str(user.id) in online_users else "offline"
-    return user_to_contact(user, status_val)
+    contact = user_to_contact(user, status_val)
+    if duplicate_exists and user.system_user:
+        contact.name = f"{user.display_name} ({user.system_user})"
+    return contact
 
 @router.get("/chat-list", response_model=List[ChatOut])
 def get_chats(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
